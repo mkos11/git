@@ -2388,4 +2388,122 @@ test_expect_success '--get and --get-all with --fixed-value' '
 	test_must_fail git config --file=config --get-regexp --fixed-value fixed+ non-existent
 '
 
+test_expect_success 'includeIf.hasremoteurl' '
+	git init hasremoteurlTest &&
+	test_when_finished "rm -rf hasremoteurlTest" &&
+
+	cat >"$(pwd)"/include-this <<-\EOF &&
+	[user]
+		this = this-is-included
+	EOF
+	cat >"$(pwd)"/dont-include-that <<-\EOF &&
+	[user]
+		that = that-is-not-included
+	EOF
+	cat >>hasremoteurlTest/.git/config <<-EOF &&
+	[includeIf "hasremoteurl:foo"]
+		path = "$(pwd)/include-this"
+	[includeIf "hasremoteurl:bar"]
+		path = "$(pwd)/dont-include-that"
+	[remote "foo"]
+		url = foo
+	EOF
+
+	echo this-is-included >expect-this &&
+	git -C hasremoteurlTest config --get user.this >actual-this &&
+	test_cmp expect-this actual-this &&
+
+	test_must_fail git -C hasremoteurlTest config --get user.that
+'
+
+test_expect_success 'includeIf.hasremoteurl respects last-config-wins' '
+	git init hasremoteurlTest &&
+	test_when_finished "rm -rf hasremoteurlTest" &&
+
+	cat >"$(pwd)"/include-two-three <<-\EOF &&
+	[user]
+		two = included-config
+		three = included-config
+	EOF
+	cat >>hasremoteurlTest/.git/config <<-EOF &&
+	[remote "foo"]
+		url = foo
+	[user]
+		one = main-config
+		two = main-config
+	[includeIf "hasremoteurl:foo"]
+		path = "$(pwd)/include-two-three"
+	[user]
+		three = main-config
+	EOF
+
+	echo main-config >expect-main-config &&
+	echo included-config >expect-included-config &&
+
+	git -C hasremoteurlTest config --get user.one >actual &&
+	test_cmp expect-main-config actual &&
+
+	git -C hasremoteurlTest config --get user.two >actual &&
+	test_cmp expect-included-config actual &&
+
+	git -C hasremoteurlTest config --get user.three >actual &&
+	test_cmp expect-main-config actual
+'
+
+test_expect_success 'includeIf.hasremoteurl globs' '
+	git init hasremoteurlTest &&
+	test_when_finished "rm -rf hasremoteurlTest" &&
+
+	printf "[user]\ndss = yes\n" >"$(pwd)/double-star-start" &&
+	printf "[user]\ndse = yes\n" >"$(pwd)/double-star-end" &&
+	printf "[user]\ndsm = yes\n" >"$(pwd)/double-star-middle" &&
+	printf "[user]\nssm = yes\n" >"$(pwd)/single-star-middle" &&
+	printf "[user]\nno = no\n" >"$(pwd)/no" &&
+
+	cat >>hasremoteurlTest/.git/config <<-EOF &&
+	[remote "foo"]
+		url = https://foo/bar/baz
+	[includeIf "hasremoteurl:**/baz"]
+		path = "$(pwd)/double-star-start"
+	[includeIf "hasremoteurl:**/nomatch"]
+		path = "$(pwd)/no"
+	[includeIf "hasremoteurl:https:/**"]
+		path = "$(pwd)/double-star-end"
+	[includeIf "hasremoteurl:nomatch:/**"]
+		path = "$(pwd)/no"
+	[includeIf "hasremoteurl:https:/**/baz"]
+		path = "$(pwd)/double-star-middle"
+	[includeIf "hasremoteurl:https:/**/nomatch"]
+		path = "$(pwd)/no"
+	[includeIf "hasremoteurl:https://*/bar/baz"]
+		path = "$(pwd)/single-star-middle"
+	[includeIf "hasremoteurl:https://*/baz"]
+		path = "$(pwd)/no"
+	EOF
+
+	git -C hasremoteurlTest config --get user.dss &&
+	git -C hasremoteurlTest config --get user.dse &&
+	git -C hasremoteurlTest config --get user.dsm &&
+	git -C hasremoteurlTest config --get user.ssm &&
+	test_must_fail git -C hasremoteurlTest config --get user.no
+'
+
+test_expect_success 'includeIf.hasremoteurl forbids remote url in such included files' '
+	git init hasremoteurlTest &&
+	test_when_finished "rm -rf hasremoteurlTest" &&
+
+	cat >"$(pwd)"/include-with-url <<-\EOF &&
+	[remote "bar"]
+		url = bar
+	EOF
+	cat >>hasremoteurlTest/.git/config <<-EOF &&
+	[includeIf "hasremoteurl:foo"]
+		path = "$(pwd)/include-with-url"
+	EOF
+
+	# test with any Git command
+	test_must_fail git -C hasremoteurlTest status 2>err &&
+	grep "fatal: remote URLs cannot be configured in file directly or indirectly included by includeIf.hasremoteurl" err
+'
+
 test_done
