@@ -828,6 +828,12 @@ test_expect_success 'sparse-index is expanded and converted back' '
 	GIT_TRACE2_EVENT="$(pwd)/trace2.txt" \
 		git -C sparse-index reset -- folder1/a &&
 	test_region index convert_to_sparse trace2.txt &&
+	test_region index ensure_full_index trace2.txt &&
+
+	# ls-files expands on read, but does not write.
+	rm trace2.txt &&
+	GIT_TRACE2_EVENT="$(pwd)/trace2.txt" GIT_TRACE2_EVENT_NESTING=10 \
+		git -C sparse-index ls-files &&
 	test_region index ensure_full_index trace2.txt
 '
 
@@ -883,6 +889,7 @@ test_expect_success 'sparse-index is not expanded' '
 	init_repos &&
 
 	ensure_not_expanded status &&
+	ensure_not_expanded ls-files --sparse &&
 	ensure_not_expanded commit --allow-empty -m empty &&
 	echo >>sparse-index/a &&
 	ensure_not_expanded commit -a -m a &&
@@ -975,6 +982,56 @@ test_expect_success 'sparse index is not expanded: blame' '
 	ensure_not_expanded blame deep/a &&
 	ensure_not_expanded blame deep/deeper1/a &&
 	ensure_not_expanded blame deep/deeper1/deepest/a
+'
+
+test_expect_success 'sparse index is not expanded: fetch/pull' '
+	init_repos &&
+
+	git -C sparse-index remote add full "file://$(pwd)/full-checkout" &&
+	ensure_not_expanded fetch full &&
+	git -C full-checkout commit --allow-empty -m "for pull merge" &&
+	git -C sparse-index commit --allow-empty -m "for pull merge" &&
+	ensure_not_expanded pull full base
+'
+
+test_expect_success 'ls-files' '
+	init_repos &&
+
+	# Behavior agrees by default. Sparse index is expanded.
+	test_all_match git ls-files &&
+
+	# With --sparse, the sparse index data changes behavior.
+	git -C sparse-index ls-files --sparse >sparse-index-out &&
+	grep "^folder1/\$" sparse-index-out &&
+	grep "^folder2/\$" sparse-index-out &&
+
+	# With --sparse and no sparse index, nothing changes.
+	git -C sparse-checkout ls-files --sparse >sparse-checkout-out &&
+	grep "^folder1/0/0/0\$" sparse-checkout-out &&
+	! grep "/\$" sparse-checkout-out &&
+
+	write_script edit-content <<-\EOF &&
+	mkdir folder1 &&
+	echo content >>folder1/a
+	EOF
+	run_on_sparse ../edit-content &&
+
+	# ls-files does not notice modified files whose
+	# cache entries are marked SKIP_WORKTREE.
+	test_sparse_match git ls-files --modified &&
+	test_must_be_empty sparse-checkout-out &&
+	test_must_be_empty sparse-index-out &&
+
+	git -C sparse-index ls-files --sparse --modified >sparse-index-out &&
+	test_must_be_empty sparse-index-out &&
+
+	run_on_sparse git sparse-checkout add folder1 &&
+	test_sparse_match git ls-files --modified &&
+	grep "^folder1/a\$" sparse-checkout-out &&
+	grep "^folder1/a\$" sparse-index-out &&
+
+	# Double-check index expansion
+	ensure_not_expanded ls-files --sparse
 '
 
 # NEEDSWORK: a sparse-checkout behaves differently from a full checkout
