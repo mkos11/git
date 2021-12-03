@@ -126,6 +126,33 @@ out_err:
 	return -1;
 }
 
+static int inherit_tracking(struct tracking *tracking, const char *orig_ref)
+{
+	const char *bare_ref;
+	struct branch *branch;
+
+	bare_ref = orig_ref;
+	skip_prefix(orig_ref, "refs/heads/", &bare_ref);
+
+	branch = branch_get(bare_ref);
+	if (!branch->remote_name) {
+		warning(_("asked to inherit tracking from %s, but no remote is set"),
+			bare_ref);
+		return -1;
+	}
+
+	if (branch->merge_nr < 1 || !branch->merge_name || !branch->merge_name[0]) {
+		warning(_("asked to inherit tracking from %s, but no merge configuration is set"),
+			bare_ref);
+		return -1;
+	}
+
+	tracking->remote = xstrdup(branch->remote_name);
+	tracking->src = xstrdup(branch->merge_name[0]);
+	tracking->matches = 1;
+	return 0;
+}
+
 /*
  * This is called when new_ref is branched off of orig_ref, and tries
  * to infer the settings for branch.<new_ref>.{remote,merge} from the
@@ -139,7 +166,9 @@ static void setup_tracking(const char *new_ref, const char *orig_ref,
 
 	memset(&tracking, 0, sizeof(tracking));
 	tracking.spec.dst = (char *)orig_ref;
-	if (for_each_remote(find_tracked_branch, &tracking))
+	if (track != BRANCH_TRACK_INHERIT) {
+		for_each_remote(find_tracked_branch, &tracking);
+	} else if (inherit_tracking(&tracking, orig_ref))
 		return;
 
 	if (!tracking.matches)
