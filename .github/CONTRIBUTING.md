@@ -1,6 +1,6 @@
 ## Contributing to Git
 
-Thanks for taking the time to contribute to Git! Please be advised that the
+Thanks for taking the time to contribute to Git! Please be advised 
 Git community does not use github.com for their contributions. Instead, we use
 a mailing list (git@vger.kernel.org) for code submissions, code
 reviews, and bug reports.
